@@ -446,6 +446,16 @@ namespace CSScriptLibrary
             return null;
         }
 
+        /// <summary>
+        /// Gets the name of the directory from the specified path.
+        /// </summary>
+        /// <param name="path">The path.</param>
+        /// <returns></returns>
+        public static string GetDirName(this string path)
+        {
+            return Path.GetDirectoryName(path ?? "");
+        }
+
 #endif
 
         /// <summary>
@@ -1039,7 +1049,7 @@ namespace CSScriptLibrary
         {
             var scriptPath = Path.GetFullPath(script);
 
-            if (!Utils.IsLinux())
+            if (!Utils.IsLinux)
                 scriptPath = scriptPath.ToLower();
 
             switch (HostingConcurrencyControl)
@@ -2267,7 +2277,7 @@ namespace CSScriptLibrary
 
             internal static bool ScriptAsmOutOfDateAdvanced(string scriptFileName, string assemblyFileName)
             {
-                if (assemblyFileName == "" || assemblyFileName == null)
+                if (assemblyFileName == "" || assemblyFileName == null || !File.Exists(assemblyFileName))
                     return true;
 
                 if (Settings.legacyTimestampCaching)

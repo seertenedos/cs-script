@@ -123,6 +123,27 @@ namespace csscript
                 return new Exception(message, childException);
         }
 
+        internal static string Expand(this string text)
+        {
+            return Environment.ExpandEnvironmentVariables(text).Trim();
+        }
+
+        internal static string NormaliseAsDirectiveOf(this string statement, string parentScript)
+        {
+            var text = CSharpParser.UnescapeDirectiveDelimiters(statement);
+
+            if (text.Length > 1 && (text[0] == '.' && text[1] != '.')) //just a single-dot start dir
+                text = Path.Combine(Path.GetDirectoryName(parentScript), text);
+
+            return Environment.ExpandEnvironmentVariables(text).Trim();
+        }
+
+        internal static string NormaliseAsDirective(this string statement)
+        {
+            var text = CSharpParser.UnescapeDirectiveDelimiters(statement);
+            return Environment.ExpandEnvironmentVariables(text).Trim();
+        }
+
         public static string[] ConcatWith(this string[] array1, IEnumerable<string> array2)
         {
             return array1.Concat(array2).ToArray();
@@ -232,9 +253,24 @@ namespace csscript
 #endif
         }
 
+        public static string GetDirName(this string path)
+        {
+            return Path.GetDirectoryName(path ?? "");
+        }
+
         public static bool IsSamePath(this string path1, string path2)
         {
-            return string.Compare(path1, path2, !Utils.IsLinux()) == 0;
+            return string.Compare(path1, path2, Utils.IsWin) == 0;
+        }
+
+        public static bool IsEmpty(this string text)
+        {
+            return string.IsNullOrEmpty(text);
+        }
+
+        public static bool IsNotEmpty(this string text)
+        {
+            return !string.IsNullOrEmpty(text);
         }
 
         public static void ClearFile(string path)
@@ -263,7 +299,7 @@ namespace csscript
         public static void SetEnvironmentVariable(string name, string value)
         {
             Environment.SetEnvironmentVariable(name, value);
-            if (!Utils.IsLinux())
+            if (Utils.IsWin)
                 try { Win32.SetEnvironmentVariable(name, value); } catch { }
         }
 
@@ -435,11 +471,19 @@ namespace csscript
             return false;
         }
 
-        public static bool IsLinux()
+        public static bool IsWin
         {
-            // Note it is not about OS being exactly Linux but rather about OS having Linux type of file system.
-            // For example path being case sensitive
-            return (Environment.OSVersion.Platform == PlatformID.Unix || Environment.OSVersion.Platform == PlatformID.MacOSX);
+            get { return !IsLinux; }
+        }
+
+        public static bool IsLinux
+        {
+            get
+            {
+                // Note it is not about OS being exactly Linux but rather about OS having Linux type of file system.
+                // For example path being case sensitive
+                return (Environment.OSVersion.Platform == PlatformID.Unix || Environment.OSVersion.Platform == PlatformID.MacOSX);
+            }
         }
 
         static bool isMono = (Type.GetType("Mono.Runtime") != null);
@@ -606,7 +650,7 @@ partial class dbg
             {
                 //Infinite timeout is not good choice here as it may block forever but continuing while the file is still locked will
                 //throw a nice informative exception.
-                if (!Utils.IsLinux())
+                if (!Utils.IsLinux)
                     fileLock.Wait(1000);
 
                 var cache_dir = Path.Combine(CSExecutor.GetScriptTempDir(), "Cache");
@@ -636,7 +680,7 @@ partial class dbg
             {
                 //Infinite timeout is not good choice here as it may block forever but continuing while the file is still locked will
                 //throw a nice informative exception.
-                if (!Utils.IsLinux())
+                if (Utils.IsWin)
                     fileLock.Wait(1000);
 
                 string code = string.Format("[assembly: System.Reflection.AssemblyDescriptionAttribute(@\"{0}\")]", scriptFileName);
@@ -872,7 +916,7 @@ partial class dbg
             {
                 get
                 {
-                    if (Utils.IsLinux())
+                    if (Utils.IsLinux)
                         return "-";
                     else
                         return "/";
@@ -887,7 +931,7 @@ partial class dbg
                         if (arg.Length == pattern.Length + 1 && arg.IndexOf(pattern) == 1)
                             return true;
 
-                    if (!Utils.IsLinux() && arg[0] == '/')
+                    if (Utils.IsWin && arg[0] == '/')
                         if (arg.Length == pattern.Length + 1 && arg.IndexOf(pattern) == 1)
                             return true;
                 }
@@ -898,7 +942,7 @@ partial class dbg
             {
                 if (arg.StartsWith("-"))
                     return true;
-                if (!Utils.IsLinux())
+                if (Utils.IsWin)
                     return (arg[0] == '/');
                 return false;
             }
@@ -907,7 +951,7 @@ partial class dbg
             {
                 if (arg.StartsWith("-"))
                     return arg.IndexOf(pattern) == 1;
-                if (!Utils.IsLinux())
+                if (Utils.IsWin)
                     if (arg[0] == '/')
                         return arg.IndexOf(pattern) == 1;
                 return false;
@@ -1012,7 +1056,7 @@ partial class dbg
                 {
                     if (Args.Same(arg, AppArgs.nl)) // -nl
                     {
-                        // '-nl' has been bmade obsolete.
+                        // '-nl' has been made obsolete.
                         // Just continue to let the legacy setting/args pass through without affecting the execution.
                         // options.noLogo = true;
                     }
@@ -1023,7 +1067,7 @@ partial class dbg
                     }
                     else if (Args.ParseValuedArg(arg, AppArgs.c, out argValue)) // -c:<value>
                     {
-                        if (!options.supressExecution) // do not change the value if compilation is the objective
+                        if (!options.suppressExecution) // do not change the value if compilation is the objective
                         {
                             if (argValue == "1" || argValue == null)
                                 options.useCompiled = true;
@@ -1033,7 +1077,7 @@ partial class dbg
                     }
                     else if (Args.ParseValuedArg(arg, AppArgs.inmem, out argValue)) // -inmem:<value>
                     {
-                        if (!options.supressExecution) // do not change the value if compilation is the objective
+                        if (!options.suppressExecution) // do not change the value if compilation is the objective
                         {
                             if (argValue == "1" || argValue == null)
                                 options.inMemoryAsm = true;
@@ -1051,8 +1095,14 @@ partial class dbg
                     else if (Args.ParseValuedArg(arg, AppArgs.sconfig, out argValue)) // -sconfig:file
                     {
                         options.useScriptConfig = true;
-                        if (argValue != null)
+                        if (argValue == "none")
+                        {
+                            options.useScriptConfig = false;
+                        }
+                        else if (argValue != null)
+                        {
                             options.customConfigFileName = argValue;
+                        }
                     }
                     else if (Args.ParseValuedArg(arg, AppArgs.provider, AppArgs.pvdr, out argValue)) // -provider:file
                     {
@@ -1112,7 +1162,7 @@ partial class dbg
                     }
                     else if (Args.ParseValuedArg(arg, AppArgs.config, out argValue)) // -config:<file>
                     {
-                        if (!options.supressExecution) // do not change the value if compilation is the objective
+                        if (!options.suppressExecution) // do not change the value if compilation is the objective
                         {
                             //-config:none             - ignore config file (use default settings)
                             //-config:create           - create config file with default settings
@@ -1187,7 +1237,7 @@ partial class dbg
                     {
                         options.useCompiled = false;
                         options.forceCompile = true;
-                        options.supressExecution = true;
+                        options.suppressExecution = true;
                         options.syntaxCheck = true;
                     }
                     else if (Args.ParseValuedArg(arg, AppArgs.proj, out argValue)) // -proj
@@ -1208,7 +1258,7 @@ partial class dbg
                     {
                         options.useCompiled = true;
                         options.forceCompile = true;
-                        options.supressExecution = true;
+                        options.suppressExecution = true;
                     }
                     else if (Args.ParseValuedArg(arg, AppArgs.co, out argValue)) // -co:<value>
                     {
@@ -1221,7 +1271,7 @@ partial class dbg
                     }
                     else if (Args.Same(arg, AppArgs.cd)) // -cd
                     {
-                        options.supressExecution = true;
+                        options.suppressExecution = true;
                         options.DLLExtension = true;
                     }
                     else if (Args.Same(arg, AppArgs.tc)) // -tc
@@ -1232,18 +1282,27 @@ partial class dbg
                     {
                         options.DBG = true;
                     }
-                    else if (Args.Same(arg, AppArgs.l))
+                    else if (Args.ParseValuedArg(arg, AppArgs.l, out argValue)) // -l:<1|0>
                     {
-                        options.local = true;
+                        options.local = (argValue != "0");
                     }
                     else if (Args.Same(arg, AppArgs.ver, AppArgs.v, AppArgs.version, AppArgs.version2)) // -ver -v -version --version
                     {
                         executor.ShowVersion();
                         CLIExitRequest.Throw();
                     }
+                    else if (Args.ParseValuedArg(arg, AppArgs.nuget, out argValue)) // -nuget[:<package>]
+                    {
+                        if (argValue.NotEmpty())
+                            NuGet.InstallPackage(argValue);
+                        else
+                            NuGet.ListPackages();
+                        CLIExitRequest.Throw();
+                    }
                     else if (Args.Same(arg, AppArgs.stop)) // -stop
                     {
                         StopVBCSCompilers();
+                        StopSyntaxer();
                         CLIExitRequest.Throw();
                     }
                     else if (Args.ParseValuedArg(arg, AppArgs.r, out argValue)) // -r:file1,file2
@@ -1257,7 +1316,7 @@ partial class dbg
                     else if (Args.Same(arg, AppArgs.e, AppArgs.ew)) // -e -ew
                     {
                         options.buildExecutable = true;
-                        options.supressExecution = true;
+                        options.suppressExecution = true;
                         if (Args.Same(arg, AppArgs.ew)) // -ew
                             options.buildWinExecutable = true;
                     }
@@ -1381,7 +1440,7 @@ partial class dbg
 
             if (options.autoClass)
             {
-                bool canHandleCShar6 = (!string.IsNullOrEmpty(options.altCompiler) || Utils.IsLinux());
+                bool canHandleCShar6 = (!string.IsNullOrEmpty(options.altCompiler) || Utils.IsLinux);
 
                 AutoclassPrecompiler.decorateAutoClassAsCS6 = (options.decorateAutoClassAsCS6 && options.enableDbgPrint && canHandleCShar6);
 
@@ -1469,13 +1528,23 @@ partial class dbg
 
         internal static void StopVBCSCompilers()
         {
+            kill("VBCSCompiler");
+        }
+
+        static void kill(string proc_name)
+        {
             try
             {
-                foreach (var p in Process.GetProcessesByName("VBCSCompiler"))
+                foreach (var p in Process.GetProcessesByName(proc_name))
                     try { p.Kill(); }
                     catch { } //cannot analyse main module as it may not be accessible for x86 vs. x64 reasons
             }
             catch { }
+        }
+
+        internal static void StopSyntaxer()
+        {
+            kill("syntaxer");
         }
 
         internal static string[] CollectPrecompillers(CSharpParser parser, ExecuteOptions options)
@@ -1630,11 +1699,13 @@ partial class dbg
             }
         }
 
-        static public bool IsRuntimeErrorReportingSupressed
+        static public bool IsRuntimeErrorReportingSuppressed
         {
             get
             {
-                return Environment.GetEnvironmentVariable("CSS_IsRuntimeErrorReportingSupressed") != null;
+                // old silly typo
+                return Environment.GetEnvironmentVariable("CSS_IsRuntimeErrorReportingSuppressed") != null ||
+                       Environment.GetEnvironmentVariable("CSS_IsRuntimeErrorReportingSupressed") != null;
             }
         }
 
@@ -1690,6 +1761,7 @@ partial class dbg
             return num1 + num2 * 0x5d588b65;
         }
 
+        // disabled just in case
         //public static unsafe int GetHashCode32Unsafe(string s)
         //{
         //    fixed (char* str = s.ToCharArray())
@@ -1842,7 +1914,7 @@ partial class dbg
 
             if (depInfo.ReadFileStamp(assembly))
             {
-                //Trace.WriteLine("Reading mete data...");
+                // Trace.WriteLine("Reading meta data...");
                 //foreach (MetaDataItems.MetaDataItem item in depInfo.items)
                 //    Trace.WriteLine(item.file + " : " + item.date);
 
@@ -1878,7 +1950,9 @@ partial class dbg
                 return false;
             }
             else
+            {
                 return true;
+            }
         }
 
         public string[] AddItems(System.Collections.Specialized.StringCollection files, bool isAssembly, string[] searchDirs)
@@ -2031,15 +2105,21 @@ partial class dbg
                         {
                             int value = ReadIntBackwards(r, ref offset);
                             if (value != CSSUtils.GetHashCodeEx(Environment.Version.ToString()))
+                            {
                                 return false;
+                            }
 
                             value = ReadIntBackwards(r, ref offset);
                             if (value != CSExecutor.options.compilationContext)
+                            {
                                 return false;
+                            }
 
                             value = ReadIntBackwards(r, ref offset);
                             if (value != (CSExecutor.options.DBG ? 1 : 0))
+                            {
                                 return false;
+                            }
 
                             int dataSize = ReadIntBackwards(r, ref offset);
                             if (dataSize != 0)
@@ -2095,10 +2175,6 @@ partial class dbg
         }
 
         int stampID = CSSUtils.GetHashCodeEx(Assembly.GetExecutingAssembly().FullName.Split(",".ToCharArray())[1]);
-
-        //#pragma warning disable 414
-        //int executionFlag = Marshal.SizeOf((Int32)0);
-        //#pragma warning restore 414
 
         bool IsGACAssembly(string file)
         {

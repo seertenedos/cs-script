@@ -13,7 +13,7 @@
     <GenerateAssemblyVersionAttribute>false</GenerateAssemblyVersionAttribute>
     <GenerateAssemblyInformationalVersionAttribute>false</GenerateAssemblyInformationalVersionAttribute>-->
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <Version>1.0.0.2</Version>
+    <Version>1.0.1.0</Version>
     <Authors>Oleg Shilo</Authors>
     <Description>CS-Script engine Class Library for .NET Core</Description>
     <Copyright>(C) 2018 Oleg Shilo</Copyright>
@@ -23,16 +23,12 @@
     <RepositoryUrl>https://github.com/oleg-shilo/cs-script.git</RepositoryUrl>
     <RepositoryType>Git</RepositoryType>
     <PackageTags>C#, scripting, script, dynamic, .NET. .NET Core</PackageTags>
-    <PackageReleaseNotes>- CSScriptLib .NET Core v1.0.0 (NuGet package)
-- Implemented debugging in RoslynEvaluator
-- Implemented MarshalByRefObjectWithInfiniteLifetime to allow long living remote script objects
-- Added MarshalByRefObjectWithInfiniteLifetime class for managing remote scripts lifetime
-- Improved RoslynEvaluator error reporting
-- Added exception handling on AsmHelper disposing.
-</PackageReleaseNotes>
+    <PackageReleaseNotes>- Implemented resolving `using` into assemblies from 'dotnet\shared' folder
+- Issue #110: Compiling to Byte[]/File in .NET Standard
+- Issue #106: Fix netstandard2 version to work in 4.6.1 and fix ReferenceDomainAssemblies</PackageReleaseNotes>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
-    <AssemblyVersion>1.0.0.1</AssemblyVersion>
-    <FileVersion>1.0.0.1</FileVersion>
+    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <FileVersion>1.0.1.0</FileVersion>
 
 </PropertyGroup>
 
@@ -52,7 +48,7 @@
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="md &quot;$(ProjectDir)output&quot;&#xD;&#xA;copy &quot;$(TargetDir)$(TargetFileName)&quot; &quot;$(ProjectDir)output\$(TargetFileName)&quot;&#xD;&#xA;copy &quot;$(SolutionDir)src\CSScriptLib.Client\Test.cs&quot; &quot;$(ProjectDir)output\Test.cs&quot;&#xD;&#xA;copy &quot;$(SolutionDir)src\CSScriptLib.Client\Test.cs&quot; &quot;$(ProjectDir)bin\$(ConfigurationName)\Test.cs&quot;&#xD;&#xA;" />
+    <Exec Command="md &quot;$(ProjectDir)output&quot;&#xD;&#xA;copy &quot;$(TargetDir)$(TargetFileName)&quot; &quot;$(ProjectDir)output\$(TargetFileName)&quot;&#xD;&#xA;copy &quot;$(ProjectDir)..\..\src\CSScriptLib.Client\Test.cs&quot; &quot;$(ProjectDir)output\Test.cs&quot;&#xD;&#xA;copy &quot;$(ProjectDir)..\..\src\CSScriptLib.Client\Test.cs&quot; &quot;$(ProjectDir)bin\$(ConfigurationName)\Test.cs&quot;&#xD;&#xA;" />
   </Target>
 
 </Project>

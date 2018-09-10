@@ -229,6 +229,17 @@ namespace csscript
             /// </summary>
             public static bool ResolveRelativeFromParentScriptLocation = false;
 
+            internal class Resolver
+            {
+                public string parentScript;
+                public string[] dirs;
+
+                public ImportInfo[] Resolve(string statement)
+                {
+                    return ImportInfo.ResolveStatement(statement.Expand(), parentScript, dirs);
+                }
+            }
+
             internal static ImportInfo[] ResolveStatement(string statement, string parentScript, string[] probinghDirs)
             {
                 if (statement.Length > 1 && (statement[0] == '.' && statement[1] != '.')) //just a single-dot start dir
@@ -283,7 +294,11 @@ namespace csscript
                 this.parentScript = parentScript;
 
                 if (!Path.IsPathRooted(this.file) && ResolveRelativeFromParentScriptLocation)
-                    this.file = Path.Combine(Path.GetDirectoryName(parentScript), this.file);
+                {
+                    var fullPath = Path.Combine(Path.GetDirectoryName(parentScript), this.file);
+                    if (File.Exists(fullPath))
+                        this.file = fullPath;
+                }
 
                 InternalInit(parts, 1);
             }
@@ -411,10 +426,10 @@ namespace csscript
         }
 
         /// <summary>
-        /// Loads and parces the file the file.
+        /// Loads and parses the file the file.
         /// </summary>
         /// <param name="script">The script.</param>
-        /// <returns>Parser contining parsing result.</returns>
+        /// <returns>Parser object containing parsing result.</returns>
         public static CSharpParser LoadFile(string script)
         {
             return new CSharpParser(script, true);
@@ -462,33 +477,20 @@ namespace csscript
         /// </summary>
         public Hashtable CustomDirectives = new Hashtable();
 
-        ///// <summary>
-        ///// Parses the C# code. Only one of the 'code' and 'file' parameters can be non empty.
-        ///// </summary>
-        ///// <param name="code">C# script code (empty string if code is in a file form).</param>
-        ///// <param name="file">The script file name (empty if code is in the text form).</param>
-        //public void Init(string code, string file)
-        //{
-        //    Init(code, file, null, null);
-        //}
-
-        ///// <summary>
-        ///// Parses the C# code.
-        ///// </summary>
-        ///// <param name="code">C# script (code or file).</param>
-        ///// <param name="file">If set to 'true' the script is a file, otherwise it is a C# code.</param>
-        ///// <param name="directivesToSearch">Additional C# script directives to search. The search result is stored in CSharpParser.CustomDirectives.</param>
-        //void Init(string code, string file, string[] directivesToSearch)
-        //{
-        //    Init(code, file, directivesToSearch, null);
-        //}
+        /// <summary>
+        /// Global flag to forcefully suppress any C# code analyses. This flag effectively disables
+        /// all CS-Script assembly and script probing and most likely some other functionality.
+        /// <para>You may ever want to suppress code analysis only for profiling purposes or during performance tuning.</para>
+        /// </summary>
+        public static bool SuppressCodeAnalysis = false;
 
         /// <summary>
-        /// Global flag to forcefuly supress any C# code analysys. This flag efectively disables
+        /// Global flag to forcefully suppress any C# code analyses. This flag effectively disables
         /// all CS-Script assembly and script probing and most likely some other functionality.
-        /// <para>You may ever want to supress code analysys only for profiling perposes or during performance tuning.</para>
+        /// <para>You may ever want to suppress code analysis only for profiling purposes or during performance tuning.</para>
         /// </summary>
-        public static bool SupressCodeAnalysis = false;
+        [Obsolete("Please use 'SuppressCodeAnalysis' instead.", true)]
+        public static bool SupressCodeAnalysis;
 
         /// <summary>
         /// Parses the C# code.
@@ -505,7 +507,7 @@ namespace csscript
 
             this.code = code;
 
-            if (SupressCodeAnalysis)
+            if (SuppressCodeAnalysis)
                 return;
 
             //analyse comments and strings
@@ -526,17 +528,13 @@ namespace csscript
 
             //analyse script arguments
             foreach (string statement in GetRawStatements("//css_args", endCodePos))
-            {
-                foreach (string arg in SplitByDelimiter(statement, ','))
-                {
-                    string newArg = arg.Trim();
-                    if (newArg.StartsWith("\""))
-                        newArg = newArg.Substring(1);
-                    if (newArg.EndsWith("\""))
-                        newArg = newArg.Remove(newArg.Length - 1, 1);
-                    args.Add(newArg);
-                }
-            }
+                args.AddRange(statement.SplitCommandLine());
+
+            // analyse auto-class decoration mode
+            foreach (string statement in GetRawStatements("//css_ac", endCodePos))
+                autoClassMode = statement;
+            foreach (string statement in GetRawStatements("//css_autoclass", endCodePos))
+                autoClassMode = statement;
 
             //analyse 'pre' and 'post' script commands
             foreach (string statement in GetRawStatements("//css_pre", endCodePos))
@@ -548,47 +546,49 @@ namespace csscript
             foreach (string statement in GetRawStatements("//css_postscript", endCodePos))
                 cmdScripts.Add(new CmdScriptInfo(statement.Trim(), false, file));
 
-            //analyze script initialization directives
+            // analyse script initialization directives
             foreach (string statement in GetRawStatements("//css_init", endCodePos))
                 inits.Add(new InitInfo(statement.Trim()));
 
-            //analyze script initialization directives
+            // analyse script initialization directives
             foreach (string statement in GetRawStatements("//css_nuget", endCodePos))
                 foreach (string package in SplitByDelimiter(statement, ','))
                     nugets.Add(package.Trim());
 
-            //analyse script imports/includes
+            var infos = new ImportInfo.Resolver { parentScript = file, dirs = probingDirs };
+
+            // analyse script imports/includes
             foreach (string statement in GetRawStatements("//css_import", endCodePos))
-                imports.AddRange(ImportInfo.ResolveStatement(Environment.ExpandEnvironmentVariables(statement).Trim(), file, probingDirs));
+                imports.AddRange(infos.Resolve(statement));
             foreach (string statement in GetRawStatements("//css_imp", endCodePos))
-                imports.AddRange(ImportInfo.ResolveStatement(Environment.ExpandEnvironmentVariables(statement).Trim(), file, probingDirs));
+                imports.AddRange(infos.Resolve(statement));
             foreach (string statement in GetRawStatements("//css_include", endCodePos))
                 if (!string.IsNullOrEmpty(statement))
-                    imports.AddRange(ImportInfo.ResolveStatement(Environment.ExpandEnvironmentVariables(statement).Trim() + ",preserve_main", file, probingDirs));
+                    imports.AddRange(infos.Resolve(statement.Expand() + ",preserve_main"));
             foreach (string statement in GetRawStatements("//css_inc", endCodePos))
                 if (!string.IsNullOrEmpty(statement))
-                    imports.AddRange(ImportInfo.ResolveStatement(Environment.ExpandEnvironmentVariables(statement).Trim() + ",preserve_main", file, probingDirs));
+                    imports.AddRange(infos.Resolve(statement.Expand() + ",preserve_main"));
 
-            //analyse assembly references
+            // analyse assembly references
             foreach (string statement in GetRawStatements("//css_reference", endCodePos))
-                refAssemblies.Add(Environment.ExpandEnvironmentVariables(UnescapeDirectiveDelimiters(statement)).Trim());
+                refAssemblies.Add(statement.NormaliseAsDirectiveOf(file));
             foreach (string statement in GetRawStatements("//css_ref", endCodePos))
-                refAssemblies.Add(Environment.ExpandEnvironmentVariables(UnescapeDirectiveDelimiters(statement)).Trim());
+                refAssemblies.Add(statement.NormaliseAsDirectiveOf(file));
 
-            //analyse precompilers
+            // analyse precompilers
             foreach (string statement in GetRawStatements("//css_precompiler", endCodePos))
-                precompilers.Add(Environment.ExpandEnvironmentVariables(UnescapeDirectiveDelimiters(statement)).Trim());
+                precompilers.Add(statement.NormaliseAsDirectiveOf(file));
 
             foreach (string statement in GetRawStatements("//css_pc", endCodePos))
-                precompilers.Add(Environment.ExpandEnvironmentVariables(UnescapeDirectiveDelimiters(statement)).Trim());
+                precompilers.Add(statement.NormaliseAsDirectiveOf(file));
 
-            //analyse compiler options
+            // analyse compiler options
             foreach (string statement in GetRawStatements("//css_co", endCodePos))
-                compilerOptions.Add(Environment.ExpandEnvironmentVariables(UnescapeDirectiveDelimiters(statement)).Trim());
+                compilerOptions.Add(statement.NormaliseAsDirective());
 
-            if (!Utils.IsLinux())
+            if (!Utils.IsLinux)
                 foreach (string statement in GetRawStatements("//css_host", endCodePos))
-                    hostOptions.Add(Environment.ExpandEnvironmentVariables(UnescapeDirectiveDelimiters(statement)).Trim());
+                    hostOptions.Add(statement.NormaliseAsDirective());
 
             //analyse assembly references
             foreach (string statement in GetRawStatements("//css_ignore_namespace", endCodePos))
@@ -598,11 +598,11 @@ namespace csscript
 
             //analyse resource references
             foreach (string statement in GetRawStatements("//css_resource", endCodePos))
-                resFiles.Add(UnescapeDirectiveDelimiters(statement).Trim());
+                resFiles.Add(statement.NormaliseAsDirectiveOf(file));
             foreach (string statement in GetRawStatements("//css_res", endCodePos))
-                resFiles.Add(UnescapeDirectiveDelimiters(statement).Trim());
+                resFiles.Add(statement.NormaliseAsDirectiveOf(file));
 
-            //analyse resource references
+            //analyse extra search (probing) dirs
             foreach (string statement in GetRawStatements("//css_searchdir", endCodePos))
                 searchDirs.AddRange(CSSUtils.GetDirectories(workingDir, Environment.ExpandEnvironmentVariables(UnescapeDirectiveDelimiters(statement)).Trim()));
             foreach (string statement in GetRawStatements("//css_dir", endCodePos))
@@ -896,6 +896,16 @@ namespace csscript
         public ApartmentState ThreadingModel
         {
             get { return threadingModel; }
+        }
+
+        string autoClassMode = null;
+
+        /// <summary>
+        /// Gets the `auto-class` decoration mode value.
+        /// </summary>
+        public string AutoClassMode
+        {
+            get { return autoClassMode; }
         }
 
         /// <summary>

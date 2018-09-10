@@ -355,6 +355,11 @@ namespace csscript
                     //do quick parsing for pre/post scripts, ThreadingModel and embedded script arguments
                     CSharpParser parser = new CSharpParser(options.scriptFileName, true, null, options.searchDirs);
 
+                    if (parser.AutoClassMode != null)
+                    {
+                        options.autoClass = true;
+                    }
+
                     if (parser.Inits.Length != 0)
                         options.initContext = parser.Inits[0];
 
@@ -575,7 +580,7 @@ namespace csscript
                 {
                     Environment.ExitCode = 1;
 
-                    if (!CSSUtils.IsRuntimeErrorReportingSupressed)
+                    if (!CSSUtils.IsRuntimeErrorReportingSuppressed)
                     {
                         if (options.reportDetailedErrorInfo && !(ex is FileNotFoundException))
                             print(ex.ToString());
@@ -602,7 +607,7 @@ namespace csscript
                         if (options.noConfig)
                         {
                             if (options.altConfig != "")
-                                settings = Settings.Load(Path.GetFullPath(options.altConfig)); //read persistent settings from configuration file
+                                settings = Settings.Load(options.altConfig); //read persistent settings from configuration file
                         }
                         else
                         {
@@ -624,12 +629,65 @@ namespace csscript
 
                         string[] searchDirs = dirs.ToArray();
                         script = FileParser.ResolveFile(script, searchDirs);
+
+
+                        if (options.customConfigFileName == "")
+                        {
+                            using (var reader = new StreamReader(script)) //quickly check if the app.config was specified in the code as -sconfig argument
+                            {
+                                string line;
+                                while (null != (line = reader.ReadLine()))
+                                {
+                                    line = line.Trim();
+                                    if (line.Any())
+                                    {
+                                        if (!line.StartsWith("//css"))
+                                            break;
+
+                                        if (line.StartsWith("//css_args"))
+                                        {
+                                            var custom_app_config = line.Substring("//css_args".Length)
+                                                               .SplitCommandLine()
+                                                               .FirstOrDefault(x=>x.StartsWith("-"+ AppArgs.sconfig + ":") 
+                                                                               || x.StartsWith("/" + AppArgs.sconfig + ":"));
+
+                                            if (custom_app_config != null)
+                                            {
+                                                options.customConfigFileName = custom_app_config.Substring(AppArgs.sconfig.Length + 2);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (options.customConfigFileName != "none")
+                            return "";
+
                         if (options.customConfigFileName != "")
+                        {
                             return Path.Combine(Path.GetDirectoryName(script), options.customConfigFileName);
+                        }
+
                         if (File.Exists(script + ".config"))
+                        {
                             return script + ".config";
+                        }
                         else if (File.Exists(Path.ChangeExtension(script, ".exe.config")))
+                        {
                             return Path.ChangeExtension(script, ".exe.config");
+                        }
+                        else if (File.Exists(Path.ChangeExtension(script, ".config")))
+                        {
+                            return Path.ChangeExtension(script, ".config");
+                        }
+                        else
+                        {
+                            var defaultAppConfig = script.GetDirName().PathCombine("app.config");
+                            if (File.Exists(defaultAppConfig))
+                                return defaultAppConfig;
+                        }
                     }
                 }
             }
@@ -701,17 +759,6 @@ namespace csscript
 
                     if (options.local)
                         Environment.CurrentDirectory = Path.GetDirectoryName(Path.GetFullPath(options.scriptFileName));
-
-                    // if (!options.noLogo)
-                    // {
-                    //     // Need to print logo only one time ever per process. This needs to be done as
-                    //     // scripted args can initiate script execution multiple times.
-                    //     if (Environment.GetEnvironmentVariable("css_logo_printed") == null)
-                    //     {
-                    //         Environment.SetEnvironmentVariable("css_logo_printed", "true");
-                    //         Console.WriteLine(AppInfo.appLogo);
-                    //     }
-                    // }
 
                     if (options.verbose)
                     {
@@ -809,7 +856,7 @@ namespace csscript
                     //
                     // * ConcurrencyControl.Standard
                     //      Due to the limited choices with the system wide named synchronization objects on Linux both Validation and Compilations stages are treated as a single stage,
-                    //      controlled by a single synch object compilingFileLock.
+                    //      controlled by a single sync object compilingFileLock.
                     //      This happens to be a good default choice for Windows as well.
                     //
                     // * ConcurrencyControl.None
@@ -909,7 +956,7 @@ namespace csscript
 
                             //no need to act on lockedByCompiler/lockedByHost as Compile(...) will throw the exception
 
-                            if (!options.inMemoryAsm && !Utils.IsLinux())
+                            if (!options.inMemoryAsm && Utils.IsWin)
                             {
                                 // wait for other EXECUTION to complete (if any)
                                 bool lockedByHost = !executingFileLock.Wait(1000);
@@ -945,7 +992,7 @@ namespace csscript
                             }
                             catch
                             {
-                                if (!CSSUtils.IsRuntimeErrorReportingSupressed)
+                                if (!CSSUtils.IsRuntimeErrorReportingSuppressed)
                                 {
                                     print("Error: Specified file could not be compiled.\n");
                                     if (NuGet.newPackageWasInstalled)
@@ -977,7 +1024,7 @@ namespace csscript
                         }
 
                         // --- EXECUTE ---
-                        if (options.supressExecution)
+                        if (options.suppressExecution)
                         {
                             if (!options.syntaxCheck)
                                 print("Created: " + assemblyFileName);
@@ -1025,7 +1072,7 @@ namespace csscript
                             }
                             catch
                             {
-                                if (!CSSUtils.IsRuntimeErrorReportingSupressed)
+                                if (!CSSUtils.IsRuntimeErrorReportingSuppressed)
                                     print("Error: Specified file could not be executed.\n");
                                 throw;
                             }
@@ -1083,7 +1130,7 @@ namespace csscript
                 else
                 {
                     Environment.ExitCode = 1;
-                    if (!CSSUtils.IsRuntimeErrorReportingSupressed)
+                    if (!CSSUtils.IsRuntimeErrorReportingSuppressed)
                     {
                         if (options.reportDetailedErrorInfo)
                             print(ex.ToString());
@@ -1206,7 +1253,8 @@ namespace csscript
 
             if (asmFileName == null || asmFileName == "")
             {
-                var asmExtension = Utils.IsMono ? ".dll" : ".compiled";
+                var asmExtension = Utils.IsMono && Utils.IsLinux ? ".dll" : ".compiled";
+                // asmExtension = ".dll"; // testing
 
                 asmFileName = options.hideTemp != Settings.HideOptions.DoNotHide ? Path.Combine(CSExecutor.ScriptCacheDir, Path.GetFileName(scripFileName) + asmExtension) : scripFileName + ".c";
             }
@@ -1523,7 +1571,7 @@ namespace csscript
 
                 if (Path.IsPathRooted(asm)) //absolute path
                 {
-                    //not-searchable assemblies
+                    //non-searchable assemblies
                     if (File.Exists(asm))
                     {
                         requestedRefAsms.AddAssembly(NormalizeGacAssemblyPath(asm));
@@ -1904,13 +1952,6 @@ namespace csscript
         {
             LastCompileResult = new CompilingInfo() { ScriptFile = scriptFileName, ParsingContext = parser.GetContext(), Result = results, Input = compilerParams };
 
-            // Console.WriteLine("-----------------");
-            // foreach (var asm in compilerParams.ReferencedAssemblies)
-            //     Console.WriteLine(asm);
-            // Environment.SetEnvironmentVariable("CSS_PROVIDER_TRACE", "true");
-            // Console.WriteLine("CSS_PROVIDER_TRACE=true");
-            // Console.WriteLine("-----------------");
-
             if (results.Errors.HasErrors)
             {
                 var ex = CompilerException.Create(results.Errors, options.hideCompilerWarnings, options.resolveAutogenFilesRefs);
@@ -1963,8 +2004,6 @@ namespace csscript
                     Console.WriteLine("> ----------------", options);
                 }
 
-                //if (Mono)
-
                 string symbFileName = Utils.DbgFileOf(assemblyFileName);
                 string pdbFileName = Utils.DbgFileOf(assemblyFileName, false);
 
@@ -1985,7 +2024,7 @@ namespace csscript
                         // Mono debugger can process it.
                         bool isPdbOnlyMode = compilerParams.CompilerOptions.Contains("debug:pdbonly");
 
-                        if (!Utils.IsLinux() || (!File.Exists(symbFileName) && !isPdbOnlyMode))
+                        if (!Utils.IsLinux || (!File.Exists(symbFileName) && !isPdbOnlyMode))
                         {
                             // Convert pdb into mdb
                             var process = new Process();
@@ -1993,10 +2032,10 @@ namespace csscript
                             {
                                 process.StartInfo.Arguments = "\"" + assemblyFileName + "\"";
 
-                                if (!Utils.IsLinux())
+                                if (!Utils.IsLinux)
                                 {
                                     // hide terminal window
-                                    process.StartInfo.FileName = @"pdb2mdb.bat";
+                                    process.StartInfo.FileName = "pdb2mdb.bat";
                                     process.StartInfo.UseShellExecute = false;
                                     process.StartInfo.ErrorDialog = false;
                                     process.StartInfo.CreateNoWindow = true;
@@ -2135,7 +2174,7 @@ namespace csscript
             string cacheDir;
             string directoryPath = Path.GetDirectoryName(Path.GetFullPath(file));
             string dirHash;
-            if (!Utils.IsLinux())
+            if (!Utils.IsLinux)
             {
                 //Win is not case-sensitive so ensure, both lower and capital case path yield the same hash
                 dirHash = CSSUtils.GetHashCodeEx(directoryPath.ToLower()).ToString();
@@ -2333,6 +2372,7 @@ namespace csscript
 
                         var providerFile = ExistingFile(asmDir, "CSSRoslynProvider.dll") ??
                                            ExistingFile(asmDir, "Lib", "CSSRoslynProvider.dll");
+
                         if (providerFile != null)
                         {
                             name = "UseAlternativeCompiler";

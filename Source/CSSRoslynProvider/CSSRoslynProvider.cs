@@ -41,19 +41,22 @@ public class CSSCodeProvider
         var file = Path.Combine(new[] { dir }.Concat(paths).ToArray());
         if (File.Exists(file))
             return file;
-        return
-            null;
+        else
+            return null;
     }
 
     static string GetDefaultAssemblyPath(string file)
     {
         var dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
 
+        // Remember, Linux FS is case sensitive.
         return ExistingFile(Environment.GetEnvironmentVariable("CSSCRIPT_ROSLYN") ?? dir, file) ??
                ExistingFile(dir, file) ??
                ExistingFile(dir, "bin", file) ??
                ExistingFile(dir, "roslyn", file) ??
-               ExistingFile(dir, "bin", "roslyn", file);
+               ExistingFile(dir, "Roslyn", file) ??
+               ExistingFile(dir, "bin", "roslyn", file) ??
+               ExistingFile(dir, "bin", "Roslyn", file);
     }
 
     static bool inited = false;
@@ -80,8 +83,12 @@ public class CSSCodeProvider
             catch { }
     }
 
-    static void Init()
+    static void Init(string sourceFile = null)
     {
+        var compilerName = "csc.exe";
+        if ((sourceFile ?? "").EndsWith(".vb", comparisonType: StringComparison.OrdinalIgnoreCase))
+            compilerName = "vbc.exe";
+
         //Debug.Assert(false);
         if (!inited)
         {
@@ -89,7 +96,7 @@ public class CSSCodeProvider
             InitMonoIntegration();
 
             CompilerPath = CompilerPath ??
-                           GetDefaultAssemblyPath("csc.exe");
+                           GetDefaultAssemblyPath(compilerName);
 
             if ((Environment.GetEnvironmentVariable("CSS_PROVIDER_TRACE") ?? "").ToLower() == "true")
                 try
@@ -121,7 +128,7 @@ public class CSSCodeProvider
     public static ICodeCompiler CreateCompiler(string sourceFile)
     {
         //System.Diagnostics.Debug.Assert(false);
-        Init();
+        Init(sourceFile);
         return CreateCompilerImpl(sourceFile);
     }
 

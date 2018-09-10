@@ -29,7 +29,7 @@ namespace csscript
                 if (nuGetCache == null)
                 {
                     var folder = Environment.SpecialFolder.CommonApplicationData;
-                    if (Utils.IsLinux())
+                    if (Utils.IsLinux)
                         folder = Environment.SpecialFolder.ApplicationData;
 
                     nuGetCache = Environment.GetEnvironmentVariable("css_nuget") ??
@@ -80,7 +80,7 @@ namespace csscript
                 if (Environment.GetEnvironmentVariable("NUGET_INCOMPATIBLE_HOST") == null)
                 {
                     var candidates = Environment.GetEnvironmentVariable("PATH")
-                                                .Split(Utils.IsLinux() ? ':' : ';')
+                                                .Split(Utils.IsLinux ? ':' : ';')
                                                 .SelectMany(dir => new[]
                                                                     {
                                                                         Path.Combine(dir, "nuget"),
@@ -115,8 +115,10 @@ namespace csscript
 
         public static bool newPackageWasInstalled = false;
 
-        static public string[] Resolve(string[] packages, bool supressDownloading, string script)
+        static public string[] Resolve(string[] packages, bool suppressDownloading, string script)
         {
+            // Debug.Assert(false);
+
             List<string> assemblies = new List<string>();
 
             bool promptPrinted = false;
@@ -129,8 +131,8 @@ namespace csscript
                 string nugetArgs = "";
                 string packageVersion = "";
 
-                bool supressReferencing = item.StartsWith("-noref");
-                if (supressReferencing)
+                bool suppressReferencing = item.StartsWith("-noref");
+                if (suppressReferencing)
                     package = item.Replace("-noref", "").Trim();
 
                 bool forceDownloading = item.StartsWith("-force");
@@ -203,10 +205,10 @@ namespace csscript
                         forceDownloading = false;
                 }
 
-                if (supressDownloading)
+                if (suppressDownloading)
                 {
-                    //it is OK if the package is not downloaded (e.g. N++ intellisense)
-                    if (!supressReferencing && IsPackageDownloaded(packageDir, packageVersion))
+                    //it is OK if the package is not downloaded (e.g. N++ Intellisense)
+                    if (!suppressReferencing && IsPackageDownloaded(packageDir, packageVersion))
                         assemblies.AddRange(GetPackageLibDlls(package, packageVersion));
                 }
                 else
@@ -252,12 +254,52 @@ namespace csscript
                     if (!IsPackageDownloaded(packageDir, packageVersion))
                         throw new ApplicationException("Cannot process NuGet package '" + package + "'");
 
-                    if (!supressReferencing)
+                    if (!suppressReferencing)
                         assemblies.AddRange(GetPackageLibDlls(package, packageVersion));
                 }
             }
 
             return Utils.RemovePathDuplicates(assemblies.ToArray());
+        }
+
+        public static void InstallPackage(string packageNameMask)
+        {
+            var packages = new string[0];
+            int index = 0;
+            //index is 1-based, exactly as it is printed with ListPackages
+            if (int.TryParse(packageNameMask, out index))
+            {
+                var all_packages = GetLocalPackages();
+                if (0 < index && index <= all_packages.Count())
+                    packages = new string[] { all_packages[index - 1] };
+                else
+                    Console.WriteLine("There is no package with the specified index");
+            }
+            else
+                packages = Directory.GetDirectories(NuGetCache, packageNameMask);
+
+            foreach (string dir in packages)
+            {
+                string name = Path.GetFileName(dir);
+                Console.WriteLine("Installing " + name + " package...");
+                Run(NuGetExe, "install " + name + " -OutputDirectory " + Path.Combine(NuGetCache, name));
+                Console.WriteLine("");
+            }
+        }
+
+        public static void ListPackages()
+        {
+            Console.WriteLine("Repository: " + NuGetCache);
+            int i = 0;
+            foreach (string name in GetLocalPackages())
+                Console.WriteLine((++i) + ". " + name);
+        }
+
+        static string[] GetLocalPackages()
+        {
+            return Directory.GetDirectories(NuGetCache)
+                            .Select(x => Path.GetFileName(x))
+                            .ToArray();
         }
 
         static string GetPackageName(string path)
@@ -457,9 +499,9 @@ namespace csscript
         static void Run(string exe, string args)
         {
             //http://stackoverflow.com/questions/38118548/how-to-install-nuget-from-command-line-on-linux
-            //on linux native "nuget" app doesn't play nice with std.out redirected
+            //on Linux native "nuget" app doesn't play nice with std.out redirected
 
-            if (Utils.IsLinux())
+            if (Utils.IsLinux)
             {
                 Process.Start(exe, args).WaitForExit();
             }

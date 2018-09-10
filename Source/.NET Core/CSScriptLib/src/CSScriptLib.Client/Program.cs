@@ -10,6 +10,7 @@ using Microsoft.CodeAnalysis.Emit;
 using System.Runtime.Loader;
 using System.Net;
 using Newtonsoft.Json.Linq;
+using System.Runtime.Serialization.Formatters.Binary;
 
 namespace CSScriptLib.Client
 {

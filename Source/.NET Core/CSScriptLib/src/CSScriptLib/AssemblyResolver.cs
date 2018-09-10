@@ -1,15 +1,5 @@
-using System;
-using System.Linq;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
-using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
-using System.Diagnostics;
-using Microsoft.CodeAnalysis.Scripting;
-using System.Runtime.Loader;
-using Microsoft.CodeAnalysis.CSharp.Scripting;
-using System.Runtime.InteropServices;
 
 namespace csscript
 {
@@ -142,15 +132,17 @@ namespace csscript
 
         /// <summary>
         /// Resolves namespace into array of global assembly (GAC) locations.
-        /// <para>NOTE: this method does nothing on .NET Core as it offers no GAC discovery mechanizm.</para>
+        /// <para>NOTE: this method does nothing on .NET Core as it offers no GAC discovery mechanism.</para>
         /// </summary>
         /// <param name="namespaceStr">'namespace' name</param>
         /// <returns>collection of assembly file names where namespace is implemented</returns>
         public static string[] FindGlobalAssembly(string namespaceStr)
         {
-            List<string> retval = new List<string>();
-            //.NET Core does not offer any asm discovery mechanism
-            return retval.ToArray();
+            // .NET Core does not offer any asm discovery mechanism
+            // Thus just check for the candidates in the "global shared" folder
+
+            string shared_dir = Path.GetDirectoryName("".GetType().Assembly.Location);
+            return FindLocalAssembly(namespaceStr, shared_dir);
         }
     }
 }
